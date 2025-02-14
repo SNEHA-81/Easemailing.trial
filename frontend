@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Loader } from "lucide-react";
 import axios from "axios";
 
+const BACKEND_URL = "https://easemailing-backend.onrender.com";
+
 export default function EmailDashboard() {
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -15,7 +17,7 @@ export default function EmailDashboard() {
   const fetchEmails = async () => {
     setLoading(true);
     try {
-      const response = await axios.get("http://127.0.0.1:8000/fetch_emails");
+      const response = await axios.get(`${BACKEND_URL}/fetch_emails`);
       setEmails(response.data.emails);
     } catch (error) {
       console.error("Error fetching emails:", error);
@@ -26,7 +28,7 @@ export default function EmailDashboard() {
 
   const handlePrioritize = async (email) => {
     try {
-      const response = await axios.post("http://127.0.0.1:8000/prioritize_email", email);
+      const response = await axios.post(`${BACKEND_URL}/prioritize_email`, email);
       alert(`Priority: ${response.data.priority}`);
     } catch (error) {
       console.error("Error prioritizing email:", error);
@@ -35,7 +37,7 @@ export default function EmailDashboard() {
 
   const handleSummarize = async (email) => {
     try {
-      const response = await axios.post("http://127.0.0.1:8000/summarize_email", email);
+      const response = await axios.post(`${BACKEND_URL}/summarize_email`, email);
       alert(`Summary: ${response.data.summary}`);
     } catch (error) {
       console.error("Error summarizing email:", error);
