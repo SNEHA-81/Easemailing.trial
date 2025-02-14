@@ -1,0 +1,73 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import os
+import json
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from transformers import pipeline
+
+app = FastAPI()
+
+# Gmail API Setup (OAuth2 Required)
+SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+def get_gmail_service():
+    creds = None
+    if os.path.exists("token.json"):
+        creds = Credentials.from_authorized_user_file("token.json")
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                "credentials.json", SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+        with open("token.json", "w") as token:
+            token.write(creds.to_json())
+    return build("gmail", "v1", credentials=creds)
+
+service = get_gmail_service()
+
+# Load Mistral 7B for email prioritization and summarization
+priority_model = pipeline("text-classification", model="mistralai/Mistral-7B-Instruct-v0.1")
+summarization_model = pipeline("summarization", model="google/t5-small")
+
+class EmailData(BaseModel):
+    subject: str
+    snippet: str
+
+@app.get("/fetch_emails")
+def fetch_emails():
+    """Fetches recent emails from Gmail."""
+    try:
+        results = service.users().messages().list(userId="me", maxResults=5).execute()
+        messages = results.get("messages", [])
+        
+        email_list = []
+        for msg in messages:
+            msg_data = service.users().messages().get(userId="me", id=msg["id"]).execute()
+            subject = next((h["value"] for h in msg_data["payload"]["headers"] if h["name"] == "Subject"), "No Subject")
+            snippet = msg_data.get("snippet", "No content")
+            email_list.append({"subject": subject, "snippet": snippet})
+        
+        return {"emails": email_list}
+    except HttpError as error:
+        raise HTTPException(status_code=500, detail=f"Gmail API error: {error}")
+
+@app.post("/prioritize_email")
+def prioritize_email(email: EmailData):
+    """Uses Mistral 7B to prioritize emails based on urgency."""
+    input_text = f"Subject: {email.subject}\nSnippet: {email.snippet}\nClassify this email as Urgent, Important, or Low Priority."
+    priority = priority_model(input_text)[0]["label"]
+    return {"priority": priority}
+
+@app.post("/summarize_email")
+def summarize_email(email: EmailData):
+    """Uses T5-Small to summarize long email content."""
+    input_text = f"Summarize the following email:\nSubject: {email.subject}\nSnippet: {email.snippet}"
+    summary = summarization_model(input_text, max_length=50, min_length=10, do_sample=False)[0]["summary_text"]
+    return {"summary": summary}
